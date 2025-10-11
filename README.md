@@ -1,2 +1,2 @@
-# time_in_linux
+# Time in Linux
 Research "How time works in Linux"
