@@ -14,16 +14,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cache npm
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc texlive texlive-xetex \
-            texlive-fonts-recommended texlive-latex-extra nodejs npm
-          sudo npm install -g @mermaid-js/mermaid-cli
+          sudo apt-get install -y pandoc \
+            texlive-xetex texlive-latex-recommended texlive-latex-extra \
+            fonts-dejavu-core nodejs npm
 
       - name: Preprocess Markdown
         run: |
           mkdir -p build build/mermaid
+          > build/combined.md
           for f in $(find . -name "*.md" | sort); do
             echo "Processing $f"
             cat "$f" \
@@ -35,14 +44,22 @@ jobs:
             echo -e "\n\n" >> build/combined.md
           done
 
-      - name: Render Mermaid diagrams
+      - name: Render Mermaid diagrams in parallel
         run: |
           awk '/```mermaid/{flag=1;count++ ;next}/```/{flag=0}flag{print > "build/mermaid/diagram"count".mmd"}' build/combined.md
+          
+          > build/mermaid/parallel.sh
           for f in build/mermaid/*.mmd; do
             [ -e "$f" ] || continue
             out="${f%.mmd}.png"
-            echo "Rendering $f -> $out"
-            mmdc -i "$f" -o "$out" --backgroundColor "#1e1e1e" --theme dark
+            echo "npx @mermaid-js/mermaid-cli -i \"$f\" -o \"$out\" --backgroundColor \"#1e1e1e\" --theme dark &" >> build/mermaid/parallel.sh
+          done
+          
+          bash build/mermaid/parallel.sh
+          wait
+          
+          for f in build/mermaid/*.mmd; do
+            out="${f%.mmd}.png"
             sed -i "s|$(basename "$f")|$(basename "$out")|g" build/combined.md
           done
 
@@ -54,7 +71,8 @@ jobs:
           \pagecolor[HTML]{1e1e1e}
           \color[HTML]{dddddd}
           \usepackage{listings}
-          \usepackage{inconsolata}
+          \usepackage{fontspec}
+          \setmonofont{DejaVu Sans Mono}
           \lstset{
             backgroundcolor=\color[HTML]{252526},
             basicstyle=\ttfamily\color[HTML]{dcdcdc},
@@ -76,7 +94,7 @@ jobs:
             --template=build/dark-template.tex \
             --toc \
             --number-sections \
-            --highlight-style=monokai \
+            --highlight-style=pygments \
             -V colorlinks=true \
             -V linkcolor=cyan \
             -V geometry:margin=1in \
