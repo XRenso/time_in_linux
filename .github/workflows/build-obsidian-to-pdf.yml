@@ -1,0 +1,91 @@
+name: Build Obsidian Vault PDF (Dark Mode)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive texlive-xetex \
+            texlive-fonts-recommended texlive-latex-extra nodejs npm
+          sudo npm install -g @mermaid-js/mermaid-cli
+
+      - name: Preprocess Markdown
+        run: |
+          mkdir -p build build/mermaid
+          for f in $(find . -name "*.md" | sort); do
+            echo "Processing $f"
+            cat "$f" \
+              | sed -E 's/\!\[\[([^)]+)\]\]/!\[\]\(\1\)/g' \
+              | sed -E 's/\[\[([^\]|]+)\|([^\]]+)\]\]/[\2](#\1)/g' \
+              | sed -E 's/\[\[([^\]|]+)\]\]/[\1](#\1)/g' \
+              | sed -E 's/^> \[!([a-zA-Z]+)\](.*)$/\n**\U\1\E:**\2\n/g' \
+              >> build/combined.md
+            echo -e "\n\n" >> build/combined.md
+          done
+
+      - name: Render Mermaid diagrams
+        run: |
+          awk '/```mermaid/{flag=1;count++ ;next}/```/{flag=0}flag{print > "build/mermaid/diagram"count".mmd"}' build/combined.md
+          for f in build/mermaid/*.mmd; do
+            [ -e "$f" ] || continue
+            out="${f%.mmd}.png"
+            echo "Rendering $f -> $out"
+            mmdc -i "$f" -o "$out" --backgroundColor "#1e1e1e" --theme dark
+            sed -i "s|$(basename "$f")|$(basename "$out")|g" build/combined.md
+          done
+
+      - name: Create dark theme template
+        run: |
+          cat > build/dark-template.tex <<'EOF'
+          \usepackage{xcolor}
+          \usepackage{pagecolor}
+          \pagecolor[HTML]{1e1e1e}
+          \color[HTML]{dddddd}
+          \usepackage{listings}
+          \usepackage{inconsolata}
+          \lstset{
+            backgroundcolor=\color[HTML]{252526},
+            basicstyle=\ttfamily\color[HTML]{dcdcdc},
+            keywordstyle=\color[HTML]{569cd6},
+            stringstyle=\color[HTML]{ce9178},
+            commentstyle=\color[HTML]{6a9955},
+            showstringspaces=false,
+            frame=single,
+            rulecolor=\color[HTML]{333333},
+            breaklines=true
+          }
+          EOF
+
+      - name: Generate PDF
+        run: |
+          mkdir -p dist
+          pandoc build/combined.md -o dist/time_in_linux.pdf \
+            --pdf-engine=xelatex \
+            --template=build/dark-template.tex \
+            --toc \
+            --number-sections \
+            --highlight-style=monokai \
+            -V colorlinks=true \
+            -V linkcolor=cyan \
+            -V geometry:margin=1in \
+            -V mainfont="DejaVu Sans Mono"
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/time_in_linux.pdf
+          name: Release ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
