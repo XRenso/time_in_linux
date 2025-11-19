@@ -1,4 +1,4 @@
 # Time in Linux
-Research "How time works in Linux"
+Доклад на тему "Как работает время в Linux"
 
-.md for obsidian
+Весь доклад написан в `markdown` файлах для `obsidian`.
